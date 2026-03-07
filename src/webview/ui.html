@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Browser Agent</title>
+    <style>
+      body {
+        padding: 10px;
+        color: var(--vscode-foreground);
+        font-family: var(--vscode-font-family);
+        background-color: var(--vscode-sideBar-background);
+      }
+      .container {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+      }
+      header {
+        font-size: 1.2rem;
+        font-weight: bold;
+        margin-bottom: 10px;
+        color: var(--vscode-notifications-infoForeground);
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      label {
+        font-size: 0.85rem;
+        opacity: 0.9;
+      }
+      textarea {
+        width: 100%;
+        min-height: 120px;
+        background-color: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        border: 1px solid var(--vscode-input-border);
+        border-radius: 4px;
+        padding: 8px;
+        resize: vertical;
+        font-family: var(--vscode-editor-font-family);
+        font-size: var(--vscode-editor-font-size);
+      }
+      textarea:focus {
+        outline: 1px solid var(--vscode-focusBorder);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      select,
+      input[type="text"] {
+        background-color: var(--vscode-dropdown-background);
+        color: var(--vscode-dropdown-foreground);
+        border: 1px solid var(--vscode-dropdown-border);
+        padding: 4px;
+        border-radius: 2px;
+      }
+      button {
+        padding: 8px 16px;
+        background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: none;
+        border-radius: 2px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: background-color 0.2s;
+      }
+      button:hover {
+        background-color: var(--vscode-button-hoverBackground);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      #status {
+        font-size: 0.8rem;
+        margin-top: 10px;
+        padding: 8px;
+        border-radius: 4px;
+        display: none;
+      }
+      .status-info {
+        background-color: var(--vscode-infoText);
+        color: white;
+        display: block !important;
+      }
+      .status-error {
+        background-color: var(--vscode-errorForeground);
+        color: white;
+        display: block !important;
+      }
+
+      .response-container {
+        margin-top: 15px;
+        border-top: 1px solid var(--vscode-divider);
+        padding-top: 15px;
+        display: none;
+      }
+      #response-text {
+        white-space: pre-wrap;
+        font-size: 0.85rem;
+        background: var(--vscode-textCodeBlock-background);
+        padding: 10px;
+        border-radius: 4px;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>Browser Agent</header>
+
+      <div class="field">
+        <label for="prompt">What should I do?</label>
+        <textarea
+          id="prompt"
+          placeholder="Ask AI to fix a bug, add a feature, or refactor code..."
+        ></textarea>
+      </div>
+
+      <div class="row">
+        <input type="checkbox" id="headless" checked />
+        <label for="headless">Headless Mode</label>
+      </div>
+
+      <div class="row">
+        <input type="checkbox" id="persistSession" />
+        <label for="persistSession">Persist Session</label>
+      </div>
+
+      <div class="row">
+        <input type="checkbox" id="manualLogin" />
+        <label for="manualLogin">Wait for Manual Login</label>
+      </div>
+
+      <div class="row">
+        <input type="checkbox" id="useDefaultBrowser" />
+        <label for="useDefaultBrowser">Use OS Default Browser</label>
+      </div>
+
+      <div class="field">
+        <label for="targetSite">Target AI Site</label>
+        <select id="targetSite">
+          <option value="https://www.perplexity.ai" selected>
+            Perplexity (Recommended)
+          </option>
+          <option value="https://claude.ai/new">Claude</option>
+          <option value="https://chatgpt.com">ChatGPT</option>
+          <option value="custom">Custom URL...</option>
+        </select>
+      </div>
+
+      <div id="customUrlContainer" class="field" style="display: none">
+        <label for="customUrl">URL</label>
+        <input type="text" id="customUrl" placeholder="https://..." />
+      </div>
+
+      <button id="runBtn">Run Agent</button>
+
+      <div id="status"></div>
+
+      <div class="response-container" id="responseContainer">
+        <label>AI Response Output:</label>
+        <div id="response-text"></div>
+        <button id="applyBtn" style="margin-top: 10px">Apply Changes</button>
+      </div>
+    </div>
+
+    <script>
+      const vscode = acquireVsCodeApi();
+      const runBtn = document.getElementById("runBtn");
+      const applyBtn = document.getElementById("applyBtn");
+      const promptInput = document.getElementById("prompt");
+      const headlessInput = document.getElementById("headless");
+      const persistInput = document.getElementById("persistSession");
+      const manualLoginInput = document.getElementById("manualLogin");
+      const useDefaultBrowserInput = document.getElementById("useDefaultBrowser");
+      const targetSiteSelect = document.getElementById("targetSite");
+      const customUrlContainer = document.getElementById("customUrlContainer");
+      const customUrlInput = document.getElementById("customUrl");
+      const statusDiv = document.getElementById("status");
+      const responseContainer = document.getElementById("responseContainer");
+      const responseText = document.getElementById("response-text");
+
+      targetSiteSelect.addEventListener("change", () => {
+        customUrlContainer.style.display =
+          targetSiteSelect.value === "custom" ? "block" : "none";
+      });
+
+      runBtn.addEventListener("click", () => {
+        const prompt = promptInput.value.trim();
+        if (!prompt) return;
+
+        const targetUrl =
+          targetSiteSelect.value === "custom"
+            ? customUrlInput.value
+            : targetSiteSelect.value;
+
+        statusDiv.textContent = "Launching browser session...";
+        statusDiv.className = "status-info";
+        runBtn.disabled = true;
+        responseContainer.style.display = "none";
+
+        vscode.postMessage({
+          command: "run",
+          prompt: prompt,
+          headless: headlessInput.checked,
+          persistSession: persistInput.checked,
+          waitForManualLogin: manualLoginInput.checked,
+          useDefaultBrowser: useDefaultBrowserInput.checked,
+          targetUrl: targetUrl,
+        });
+      });
+
+      applyBtn.addEventListener("click", () => {
+        vscode.postMessage({
+          command: "apply",
+          response: responseText.textContent,
+        });
+      });
+
+      window.addEventListener("message", (event) => {
+        const message = event.data;
+        switch (message.command) {
+          case "status":
+            statusDiv.textContent = message.text;
+            statusDiv.className = "status-info";
+            break;
+          case "error":
+            statusDiv.textContent = message.text;
+            statusDiv.className = "status-error";
+            runBtn.disabled = false;
+            break;
+          case "success":
+            statusDiv.style.display = "none";
+            runBtn.disabled = false;
+            responseContainer.style.display = "block";
+            responseText.textContent = message.response;
+            break;
+        }
+      });
+    </script>
+  </body>
+</html>

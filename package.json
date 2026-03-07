@@ -1,0 +1,95 @@
+{
+  "name": "browser-agent",
+  "displayName": "BrowserAgent",
+  "description": "An AI-powered browser agent for VS Code",
+  "version": "1.0.0",
+  "publisher": "antigravity",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/antigravity/browser-agent"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "browserAgent.run",
+        "title": "Run Browser Agent"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "browserAgent",
+          "title": "Browser Agent",
+          "icon": "$(robot)"
+        }
+      ]
+    },
+    "views": {
+      "browserAgent": [
+        {
+          "id": "browserAgent.panel",
+          "type": "webview",
+          "name": "Agent Prompt"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Browser Agent",
+      "properties": {
+        "browserAgent.headless": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the browser in headless mode."
+        },
+        "browserAgent.targetUrl": {
+          "type": "string",
+          "default": "https://www.perplexity.ai",
+          "description": "The URL of the AI website to automate."
+        },
+        "browserAgent.promptSelector": {
+          "type": "string",
+          "default": "#ask-input, div[contenteditable='true']",
+          "description": "CSS selector for the text input field."
+        },
+        "browserAgent.submitSelector": {
+          "type": "string",
+          "default": "button[aria-label*='ubmit'], button[aria-label*='end'], button[type='submit']",
+          "description": "CSS selector for the submit button."
+        },
+        "browserAgent.responseSelector": {
+          "type": "string",
+          "default": ".prose, .font-claude-message, div[data-testid='message-container']",
+          "description": "CSS selector for the AI response container."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "compile-build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:playwright-core --platform=node --format=cjs"
+  },
+  "devDependencies": {
+    "@types/node": "20.x",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.19.11",
+    "playwright": "^1.58.2",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "playwright-core": "^1.41.1"
+  }
+}

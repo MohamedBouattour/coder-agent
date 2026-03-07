@@ -2,11 +2,11 @@
   "name": "browser-agent",
   "displayName": "BrowserAgent",
   "description": "An AI-powered browser agent for VS Code",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "antigravity",
   "repository": {
     "type": "git",
-    "url": "https://github.com/antigravity/browser-agent"
+    "url": "https://github.com/MohamedBouattour/coder-agent"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -47,7 +47,7 @@
         "browserAgent.headless": {
           "type": "boolean",
           "default": false,
-          "description": "Run the browser in headless mode."
+          "description": "Run the browser in headless mode (no visible window). When false, the browser opens visibly."
         },
         "browserAgent.targetUrl": {
           "type": "string",
@@ -57,17 +57,53 @@
         "browserAgent.promptSelector": {
           "type": "string",
           "default": "#ask-input, div[contenteditable='true']",
-          "description": "CSS selector for the text input field."
+          "description": "CSS selector for the text input field on the AI site."
         },
         "browserAgent.submitSelector": {
           "type": "string",
           "default": "button[aria-label*='ubmit'], button[aria-label*='end'], button[type='submit']",
-          "description": "CSS selector for the submit button."
+          "description": "CSS selector for the submit button on the AI site."
         },
         "browserAgent.responseSelector": {
           "type": "string",
           "default": ".prose, .font-claude-message, div[data-testid='message-container']",
           "description": "CSS selector for the AI response container."
+        },
+        "browserAgent.useSystemChrome": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use your installed Google Chrome (with your logged-in sessions) instead of Playwright's bundled Chromium. Requires headless=false."
+        },
+        "browserAgent.chromeProfile": {
+          "type": "string",
+          "default": "Default",
+          "description": "Chrome profile folder name to use (e.g. 'Default', 'Profile 1', 'Profile 2'). Found inside your Chrome User Data directory."
+        },
+        "browserAgent.useCdp": {
+          "type": "boolean",
+          "default": false,
+          "description": "Connect to an already-running Chrome via Chrome DevTools Protocol instead of launching a new instance. Chrome must be started with --remote-debugging-port=<cdpPort>. This is the most seamless option — no profile copy needed."
+        },
+        "browserAgent.cdpPort": {
+          "type": "number",
+          "default": 9222,
+          "description": "The localhost port Chrome is listening on for CDP (used when useCdp=true). Start Chrome with: --remote-debugging-port=9222"
+        },
+        "browserAgent.persistSession": {
+          "type": "boolean",
+          "default": true,
+          "description": "Persist the Playwright browser session between runs (saves cookies/login state in ~/.browser-agent-session). Only applies when useSystemChrome=false."
+        },
+        "browserAgent.waitForManualLogin": {
+          "type": "boolean",
+          "default": false,
+          "description": "Pause after navigating to the target URL and wait for you to manually log in before the agent types the prompt."
+        },
+        "browserAgent.useDefaultBrowser": {
+          "type": "boolean",
+          "default": false,
+          "description": "Deprecated — use browserAgent.useSystemChrome instead.",
+          "deprecationMessage": "Use browserAgent.useSystemChrome instead."
         }
       }
     }

@@ -20,13 +20,13 @@ export function activate(context: vscode.ExtensionContext) {
     currentImprovedPrompt = "";
     provider.updateState("Describe Task", "e.g. Add a logout button...", false);
     provider.postStatus("Ready.");
+    provider.navigateIframe("about:blank", false);
   };
 
   const openPerplexityWithPrompt = async (prompt: string) => {
-    // Perplexity automatically fills and runs the prompt if passed via the `q` query parameter
     const encodedPrompt = encodeURIComponent(prompt);
     const url = `https://www.perplexity.ai/search/new?q=${encodedPrompt}`;
-    await vscode.env.openExternal(vscode.Uri.parse(url));
+    provider.navigateIframe(url, true);
   };
 
   const handleSubmit = async (text: string) => {
@@ -51,12 +51,12 @@ export function activate(context: vscode.ExtensionContext) {
 
         const phase1Prompt = buildPhase1Prompt(text, currentBasicContext, pkgContent);
         
-        provider.postStatus("Opening browser with Phase 1 prompt...");
+        provider.postStatus("Loading embedded browser for Phase 1...");
         await openPerplexityWithPrompt(phase1Prompt);
         
         currentState = AgentState.WaitingForPhase1;
-        provider.updateState("Phase 1: Paste AI JSON Response", "Paste the JSON object response here...", true);
-        provider.postStatus("Waiting for Phase 1 JSON response from browser...");
+        provider.updateState("Phase 1: Paste AI JSON Response", "Copy the JSON response from the frame below and paste it here...", true);
+        provider.postStatus("Waiting for Phase 1 JSON response from embedded frame...");
 
       } else if (currentState === AgentState.WaitingForPhase1) {
         if (!currentBasicContext) {
@@ -72,11 +72,11 @@ export function activate(context: vscode.ExtensionContext) {
 
         const phase2Prompt = buildPhase2Prompt(currentImprovedPrompt, enrichedContext);
         
-        provider.postStatus("Opening browser with Phase 2 prompt...");
+        provider.postStatus("Loading embedded browser for Phase 2...");
         await openPerplexityWithPrompt(phase2Prompt);
         
         currentState = AgentState.WaitingForPhase2;
-        provider.updateState("Phase 2: Paste Final Code Response", "Paste the generated code here...", true);
+        provider.updateState("Phase 2: Paste Final Code Response", "Copy the generated code from the frame below and paste it here...", true);
 
       } else if (currentState === AgentState.WaitingForPhase2) {
         provider.postStatus("Applying file changes...");

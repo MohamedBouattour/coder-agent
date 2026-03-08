@@ -31,6 +31,8 @@ export class BrowserAgentViewProvider implements vscode.WebviewViewProvider {
           this.onCancel();
         } else if (msg?.type === "ping") {
           this.postStatus("Ready.");
+        } else if (msg?.type === "openExternal") {
+          await vscode.env.openExternal(vscode.Uri.parse(msg.url));
         }
       } catch (e: any) {
         this.postError(e?.message ?? String(e));
@@ -79,7 +81,8 @@ export class BrowserAgentViewProvider implements vscode.WebviewViewProvider {
     .box { padding: 10px; border: 1px solid var(--vscode-widget-border); border-radius: 4px; background: var(--vscode-editor-background); }
     .muted { opacity: 0.8; font-size: 0.9em; font-weight: bold; margin-bottom: 4px; }
     pre { white-space: pre-wrap; word-break: break-word; font-size: 0.85em; margin: 0; font-family: var(--vscode-editor-font-family); }
-    iframe { flex: 1; width: 100%; border: 1px solid var(--vscode-widget-border); border-radius: 4px; display: none; background: #fff; }
+    iframe { flex: 1; width: 100%; border: 1px solid var(--vscode-widget-border); border-radius: 4px; display: none; background: #fff; min-height: 300px; }
+    #consoleLogs { max-height: 100px; overflow-y: auto; border-top: 1px dashed var(--vscode-widget-border); margin-top: 8px; padding-top: 8px; font-size: 0.8em; color: var(--vscode-errorForeground); display: none; }
   </style>
 </head>
 <body>
@@ -92,8 +95,10 @@ export class BrowserAgentViewProvider implements vscode.WebviewViewProvider {
   <div class="box">
     <div class="muted" style="font-size: 0.8em; margin-bottom: 6px;">Status</div>
     <pre id="status">Ready.</pre>
+    <pre id="consoleLogs"></pre>
   </div>
 
+  <button id="openExternalBtn" class="secondary" style="display: none;">Blank screen? Open in External Browser instead</button>
   <iframe id="perplexityFrame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" src="about:blank"></iframe>
 
   <script nonce="${nonce}">
@@ -104,6 +109,17 @@ export class BrowserAgentViewProvider implements vscode.WebviewViewProvider {
     const submitBtn = document.getElementById('submitBtn');
     const cancelBtn = document.getElementById('cancelBtn');
     const iframeEl = document.getElementById('perplexityFrame');
+    const logsEl = document.getElementById('consoleLogs');
+    const externalBtn = document.getElementById('openExternalBtn');
+    let currentIframeUrl = '';
+
+    // Capture console errors
+    const originalError = console.error;
+    console.error = function(...args) {
+      originalError.apply(console, args);
+      logsEl.style.display = 'block';
+      logsEl.textContent += '[Error] ' + args.join(' ') + '\\n';
+    };
 
     function submit() {
       const text = (promptEl.value || '').trim();
@@ -118,16 +134,35 @@ export class BrowserAgentViewProvider implements vscode.WebviewViewProvider {
       vscode.postMessage({ type: 'cancel' });
     });
 
+    externalBtn.addEventListener('click', () => {
+      if (currentIframeUrl && currentIframeUrl !== 'about:blank') {
+        vscode.postMessage({ type: 'openExternal', url: currentIframeUrl });
+      }
+    });
+
     promptEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         if (e.shiftKey) {
-          // Allow shift+enter to jump a row (insert newline natively)
           return;
         } else {
-          // Enter without shift triggers submit
           e.preventDefault();
           submit();
         }
+      }
+    });
+
+    iframeEl.addEventListener('load', () => {
+      try {
+        // If we can access location, it means it's not cross-origin blocked yet, or it's about:blank
+        const href = iframeEl.contentWindow.location.href;
+        if (href !== 'about:blank') {
+          console.log("Iframe loaded successfully.");
+        }
+      } catch (e) {
+        // Cross-origin restriction triggered - this is expected for Perplexity, 
+        // but if the screen is fully blank, it means X-Frame-Options blocked it.
+        logsEl.style.display = 'block';
+        logsEl.textContent += "Notice: Perplexity restricts iframe embedding (X-Frame-Options: SAMEORIGIN). If the frame is blank, click 'Open in External Browser'.\\n";
       }
     });
 
@@ -137,15 +172,20 @@ export class BrowserAgentViewProvider implements vscode.WebviewViewProvider {
       if (msg.type === 'status') {
         statusEl.textContent = msg.text ?? '';
       } else if (msg.type === 'error') {
-        statusEl.textContent = 'Error: ' + (msg.text ?? '');
+        logsEl.style.display = 'block';
+        logsEl.textContent += '[Error] ' + (msg.text ?? '') + '\\n';
       } else if (msg.type === 'state') {
         instructionEl.textContent = msg.instruction;
         promptEl.value = '';
         promptEl.placeholder = msg.placeholder;
         cancelBtn.style.display = msg.showCancel ? 'block' : 'none';
+        logsEl.style.display = 'none';
+        logsEl.textContent = '';
       } else if (msg.type === 'navigate') {
+        currentIframeUrl = msg.url;
         iframeEl.src = msg.url;
         iframeEl.style.display = msg.show ? 'block' : 'none';
+        externalBtn.style.display = msg.show ? 'block' : 'none';
       }
     });
 

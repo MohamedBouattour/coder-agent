@@ -22,6 +22,13 @@ export function activate(context: vscode.ExtensionContext) {
     provider.postStatus("Ready.");
   };
 
+  const openPerplexityWithPrompt = async (prompt: string) => {
+    // Perplexity automatically fills and runs the prompt if passed via the `q` query parameter
+    const encodedPrompt = encodeURIComponent(prompt);
+    const url = `https://www.perplexity.ai/search/new?q=${encodedPrompt}`;
+    await vscode.env.openExternal(vscode.Uri.parse(url));
+  };
+
   const handleSubmit = async (text: string) => {
     if (!text.trim()) return;
 
@@ -44,14 +51,12 @@ export function activate(context: vscode.ExtensionContext) {
 
         const phase1Prompt = buildPhase1Prompt(text, currentBasicContext, pkgContent);
         
-        await vscode.env.clipboard.writeText(phase1Prompt);
-        provider.postStatus("Phase 1 prompt copied! Opening default browser...");
-        
-        await vscode.env.openExternal(vscode.Uri.parse("https://www.perplexity.ai"));
+        provider.postStatus("Opening browser with Phase 1 prompt...");
+        await openPerplexityWithPrompt(phase1Prompt);
         
         currentState = AgentState.WaitingForPhase1;
         provider.updateState("Phase 1: Paste AI JSON Response", "Paste the JSON object response here...", true);
-        provider.postStatus("Waiting for Phase 1 response...");
+        provider.postStatus("Waiting for Phase 1 JSON response from browser...");
 
       } else if (currentState === AgentState.WaitingForPhase1) {
         if (!currentBasicContext) {
@@ -67,8 +72,8 @@ export function activate(context: vscode.ExtensionContext) {
 
         const phase2Prompt = buildPhase2Prompt(currentImprovedPrompt, enrichedContext);
         
-        await vscode.env.clipboard.writeText(phase2Prompt);
-        provider.postStatus("Phase 2 prompt copied! Switch to browser and paste it.");
+        provider.postStatus("Opening browser with Phase 2 prompt...");
+        await openPerplexityWithPrompt(phase2Prompt);
         
         currentState = AgentState.WaitingForPhase2;
         provider.updateState("Phase 2: Paste Final Code Response", "Paste the generated code here...", true);

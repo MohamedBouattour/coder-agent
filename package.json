@@ -14,7 +14,10 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:browserAgent.run",
+    "onView:browserAgent.panel"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [

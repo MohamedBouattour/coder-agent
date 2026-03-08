@@ -1,121 +1,157 @@
 import * as vscode from "vscode";
-import * as fs from "fs";
-import * as path from "path";
-import { getAgentContext, buildEnrichedPrompt } from "../promptEngineer";
-import { runBrowserSession } from "../browserController";
-import { applyChanges } from "../fileApplicator";
+
+export type RunHandler = (userPrompt: string) => Promise<void>;
+export type ApplyHandler = (response: string) => Promise<void>;
 
 export class BrowserAgentViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "browserAgent.panel";
   private _view?: vscode.WebviewView;
 
-  constructor(private readonly _extensionUri: vscode.Uri) {}
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly onRun: RunHandler,
+    private readonly onApply: ApplyHandler,
+  ) {}
 
-  public resolveWebviewView(
-    webviewView: vscode.WebviewView,
-    context: vscode.WebviewViewResolveContext,
-    _token: vscode.CancellationToken,
-  ) {
+  public resolveWebviewView(webviewView: vscode.WebviewView): void {
     this._view = webviewView;
 
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: [this._extensionUri],
+      localResourceRoots: [this.extensionUri],
     };
 
-    webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+    webviewView.webview.html = this.getHtml(webviewView.webview);
 
-    webviewView.webview.onDidReceiveMessage(async (data) => {
-      switch (data.command) {
-        case "run":
-          await this._handleRun(
-            data.prompt,
-            data.headless,
-            data.targetUrl,
-            data.persistSession,
-            data.waitForManualLogin,
-            data.useDefaultBrowser,
-          );
-          break;
-
-        case "apply":
-          await applyChanges(data.response);
-          break;
+    webviewView.webview.onDidReceiveMessage(async (msg) => {
+      try {
+        switch (msg?.type) {
+          case "run": {
+            const prompt = String(msg?.prompt ?? "").trim();
+            if (!prompt) {
+              this.postStatus("Please enter a prompt.");
+              return;
+            }
+            await this.onRun(prompt);
+            return;
+          }
+          case "apply": {
+            const response = String(msg?.response ?? "").trim();
+            if (!response) {
+              this.postStatus("Please paste a response first.");
+              return;
+            }
+            await this.onApply(response);
+            return;
+          }
+          case "ping":
+            this.postStatus("Ready.");
+            return;
+          default:
+            return;
+        }
+      } catch (e: any) {
+        this.postError(e?.message ?? String(e));
       }
     });
   }
 
-  private async _handleRun(
-    userPrompt: string,
-    headless: boolean,
-    targetUrl: string,
-    persistSession: boolean,
-    waitForManualLogin: boolean,
-    useDefaultBrowser: boolean,
-  ) {
-    if (!this._view) return;
+  public reveal(): void {
+    this._view?.show?.(true);
+  }
 
-    try {
-      const config = vscode.workspace.getConfiguration("browserAgent");
+  public postStatus(text: string): void {
+    this._view?.webview.postMessage({ type: "status", text });
+  }
 
-      this._view.webview.postMessage({
-        command: "status",
-        text: "Gathering workspace context...",
-      });
-      const context = await getAgentContext();
+  public postResult(text: string): void {
+    this._view?.webview.postMessage({ type: "result", text });
+  }
 
-      if (!context) {
-        this._view.webview.postMessage({
-          command: "error",
-          text: "No workspace open.",
-        });
-        return;
+  public postError(text: string): void {
+    this._view?.webview.postMessage({ type: "error", text });
+  }
+
+  private getHtml(webview: vscode.Webview): string {
+    const nonce = getNonce();
+    const csp = `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';`;
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="${csp}">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Browser Agent</title>
+  <style>
+    body { font-family: var(--vscode-font-family); padding: 10px; color: var(--vscode-foreground); }
+    textarea { width: 100%; min-height: 100px; resize: vertical; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); }
+    button { margin-top: 8px; width: 100%; padding: 6px; cursor: pointer; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; }
+    button:hover { background: var(--vscode-button-hoverBackground); }
+    .box { margin-top: 15px; padding: 10px; border: 1px solid var(--vscode-widget-border); border-radius: 4px; }
+    .muted { opacity: 0.8; font-size: 0.9em; margin-bottom: 4px; }
+    pre { white-space: pre-wrap; word-break: break-word; font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="muted">1. Describe Task</div>
+  <textarea id="prompt" placeholder="e.g. Add a logout button to the header..."></textarea>
+  <button id="run">Copy Context & Open Browser</button>
+
+  <div class="box">
+    <div class="muted">2. Paste AI Response</div>
+    <textarea id="response" placeholder="Paste the full markdown response from the AI here..."></textarea>
+    <button id="apply">Apply Changes</button>
+  </div>
+
+  <div class="box">
+    <div class="muted">Status</div>
+    <pre id="status">Ready.</pre>
+  </div>
+
+  <script nonce="${nonce}">
+    const vscode = acquireVsCodeApi();
+    const promptEl = document.getElementById('prompt');
+    const responseEl = document.getElementById('response');
+    const statusEl = document.getElementById('status');
+    const runBtn = document.getElementById('run');
+    const applyBtn = document.getElementById('apply');
+
+    runBtn.addEventListener('click', () => {
+      const prompt = (promptEl.value || '').trim();
+      vscode.postMessage({ type: 'run', prompt });
+    });
+
+    applyBtn.addEventListener('click', () => {
+      const response = (responseEl.value || '').trim();
+      vscode.postMessage({ type: 'apply', response });
+    });
+
+    window.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (!msg || !msg.type) return;
+      switch (msg.type) {
+        case 'status':
+          statusEl.textContent = msg.text ?? '';
+          break;
+        case 'error':
+          statusEl.textContent = 'Error: ' + (msg.text ?? '');
+          break;
       }
+    });
 
-      this._view.webview.postMessage({
-        command: "status",
-        text: "Building enriched prompt...",
-      });
-      const enrichedPrompt = buildEnrichedPrompt(userPrompt, context);
-
-      this._view.webview.postMessage({
-        command: "status",
-        text: "Starting browser session...",
-      });
-      const response = await runBrowserSession(enrichedPrompt, {
-        headless: headless,
-        targetUrl: targetUrl || (config.get("targetUrl") as string),
-        promptSelector: config.get("promptSelector") as string,
-        submitSelector: config.get("submitSelector") as string,
-        responseSelector: config.get("responseSelector") as string,
-        persistSession: persistSession,
-        waitForManualLogin: waitForManualLogin,
-        useDefaultBrowser: useDefaultBrowser,
-      });
-
-      this._view.webview.postMessage({
-        command: "success",
-        response: response,
-      });
-    } catch (error: any) {
-      this._view.webview.postMessage({
-        command: "error",
-        text: `Error: ${error.message}`,
-      });
-    }
+    vscode.postMessage({ type: 'ping' });
+  </script>
+</body>
+</html>`;
   }
+}
 
-  private _getHtmlForWebview(webview: vscode.Webview) {
-    const htmlPath = path.join(
-      this._extensionUri.fsPath,
-      "src",
-      "webview",
-      "ui.html",
-    );
-    let html = fs.readFileSync(htmlPath, "utf8");
-
-    // In a real build system, we might need to adjust paths for assets
-    // but here we are using a single file for UI.
-    return html;
-  }
+function getNonce(): string {
+  const possible =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let text = "";
+  for (let i = 0; i < 32; i++)
+    text += possible.charAt(Math.floor(Math.random() * possible.length));
+  return text;
 }

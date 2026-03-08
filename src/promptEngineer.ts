@@ -624,99 +624,22 @@ export async function enrichContext(
   return { ...basic, requestedFiles };
 }
 
-// ─── Two-Phase Orchestrator ───────────────────────────────────────────────────
-
 /**
- * Full two-phase pipeline:
- *   Phase 1 — send annotated file tree → model responds with file list
- *   Phase 2 — load those files → build enriched prompt → ready for task
- *
- * @param userPrompt  Raw user request
- * @param runBrowser  Callback that sends a prompt to the AI and returns response
- *
- * @example
- *   // In extension.ts command handler:
- *   const context = await runTwoPhaseContextBuild(userPrompt, runBrowserSession);
- *   if (!context) return;
- *   const taskPrompt = buildEnrichedPrompt(userPrompt, context);
- *   const aiResponse = await runBrowserSession(taskPrompt);
- *   await applyChanges(aiResponse);
+ * Full single-pass context build.
+ * Since we are now using a manual workflow, we provide the model with
+ * everything it might need in one go (file tree + active file).
  */
-export async function runTwoPhaseContextBuild(
+export async function buildFullContext(
   userPrompt: string,
-  runBrowser: (prompt: string) => Promise<string>,
 ): Promise<AgentContext | undefined> {
-  return vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: "Browser Agent",
-      cancellable: false,
-    },
-    async (progress) => {
-      // ── Phase 1: Discovery ───────────────────────────────────────────────
-      progress.report({
-        increment: 0,
-        message:
-          "Phase 1/2 — analysing workspace & asking model which files to scan…",
-      });
+  const basic = await getBasicContext();
+  if (!basic) return undefined;
 
-      const basic = await getBasicContext();
-      if (!basic) {
-        vscode.window.showErrorMessage(
-          "[BrowserAgent] No workspace folder open.",
-        );
-        return undefined;
-      }
-
-      const discoveryPrompt = buildFileDiscoveryPrompt(userPrompt, basic);
-
-      let phase1Response: string;
-      try {
-        phase1Response = await runBrowser(discoveryPrompt);
-      } catch (err) {
-        vscode.window.showErrorMessage(
-          `[BrowserAgent] Phase 1 browser error: ${err}`,
-        );
-        return undefined;
-      }
-
-      const requestedPaths = parseRequestedFiles(
-        phase1Response,
-        basic.fileTree,
-      );
-
-      // ── Phase 2: Load & Enrich ───────────────────────────────────────────
-      progress.report({
-        increment: 50,
-        message: `Phase 2/2 — loading ${requestedPaths.length} file(s) into context…`,
-      });
-
-      const fullContext = await enrichContext(basic, requestedPaths);
-
-      const loadedSummary = requestedPaths
-        .map((p) => {
-          const entry = basic.fileTree.find((e) => e.relPath === p);
-          return entry
-            ? `${p} (${entry.metadata.lines}L, ${entry.metadata.sizeKb}KB)`
-            : p;
-        })
-        .join(", ");
-
-      if (requestedPaths.length > 0) {
-        vscode.window.showInformationMessage(
-          `[BrowserAgent] Context loaded ${requestedPaths.length} file(s): ${loadedSummary}`,
-        );
-      } else {
-        vscode.window.showInformationMessage(
-          "[BrowserAgent] Model needs no additional files — proceeding with active file.",
-        );
-      }
-
-      progress.report({
-        increment: 100,
-        message: "Context ready — running task…",
-      });
-      return fullContext;
-    },
-  );
+  // For manual mode, we don't do Phase 1/2 discovery rounds.
+  // We just provide the basic context (tree + active file).
+  // The model in the browser can then ask for more if needed.
+  return {
+    ...basic,
+    requestedFiles: {},
+  };
 }

@@ -119,9 +119,15 @@ export class BrowserAgentViewProvider implements vscode.WebviewViewProvider {
     });
 
     promptEl.addEventListener('keydown', (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        e.preventDefault();
-        submit();
+      if (e.key === 'Enter') {
+        if (e.shiftKey) {
+          // Allow shift+enter to jump a row (insert newline natively)
+          return;
+        } else {
+          // Enter without shift triggers submit
+          e.preventDefault();
+          submit();
+        }
       }
     });
 

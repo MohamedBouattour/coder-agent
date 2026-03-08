@@ -24,9 +24,9 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   const openPerplexityWithPrompt = async (prompt: string) => {
-    const encodedPrompt = encodeURIComponent(prompt);
-    const url = `https://www.perplexity.ai/search/new?q=${encodedPrompt}`;
-    provider.navigateIframe(url, true);
+    // Avoid 414 Request-URI Too Large by using clipboard instead of URL query param
+    await vscode.env.clipboard.writeText(prompt);
+    provider.navigateIframe("https://www.perplexity.ai/", true);
   };
 
   const handleSubmit = async (text: string) => {
@@ -56,7 +56,7 @@ export function activate(context: vscode.ExtensionContext) {
         
         currentState = AgentState.WaitingForPhase1;
         provider.updateState("Phase 1: Paste AI JSON Response", "Copy the JSON response from the frame below and paste it here...", true);
-        provider.postStatus("Waiting for Phase 1 JSON response from embedded frame...");
+        provider.postStatus("Prompt copied to clipboard! Paste it into the frame below, hit enter, then paste the AI JSON response here.");
 
       } else if (currentState === AgentState.WaitingForPhase1) {
         if (!currentBasicContext) {
@@ -77,6 +77,7 @@ export function activate(context: vscode.ExtensionContext) {
         
         currentState = AgentState.WaitingForPhase2;
         provider.updateState("Phase 2: Paste Final Code Response", "Copy the generated code from the frame below and paste it here...", true);
+        provider.postStatus("Phase 2 prompt copied to clipboard! Paste it into the frame below, then copy the final generated code here.");
 
       } else if (currentState === AgentState.WaitingForPhase2) {
         provider.postStatus("Applying file changes...");

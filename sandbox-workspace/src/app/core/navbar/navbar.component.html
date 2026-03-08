@@ -1,0 +1,55 @@
+<mat-toolbar class="navbar-container" [class.scrolled]="isScrolled()">
+  <button
+    class="logo-section"
+    (click)="onToggleSidenav()"
+    matRipple
+    aria-label="Toggle Sidenav"
+  >
+    <div class="logo-icon">
+      <mat-icon>architecture</mat-icon>
+    </div>
+    <span class="logo-text">Clean Architecture</span>
+  </button>
+
+  <div class="actions-section">
+    @if (authService.isAuthenticated()) {
+      @if (authService.currentUser(); as user) {
+        <div class="user-profile" matRipple>
+          <div class="user-info">
+            <span class="label">Account</span>
+            <span class="name">{{ user.name || user.email }}</span>
+          </div>
+          <div class="avatar">
+            {{ (user.name || user.email).charAt(0).toUpperCase() }}
+          </div>
+        </div>
+      }
+      <button
+        mat-icon-button
+        (click)="onLogout()"
+        matTooltip="Logout"
+        class="nav-button logout-btn"
+      >
+        <mat-icon>logout</mat-icon>
+      </button>
+    } @else {
+      <div class="auth-group">
+        <a mat-button routerLink="/login" class="nav-button login-btn">
+          <mat-icon>login</mat-icon>
+          <span class="hidden sm:inline">Login</span>
+        </a>
+        <a mat-flat-button routerLink="/signup" class="nav-button signup-btn">
+          <mat-icon>person_add</mat-icon>
+          <span class="hidden sm:inline">Sign Up</span>
+        </a>
+      </div>
+    }
+
+    <div class="divider"></div>
+
+    <div class="selectors">
+      <app-theme-selector />
+      <app-language-selector />
+    </div>
+  </div>
+</mat-toolbar>

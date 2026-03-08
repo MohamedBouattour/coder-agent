@@ -2,7 +2,7 @@
   "name": "browser-agent",
   "displayName": "BrowserAgent",
   "description": "An AI-powered browser agent for VS Code",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "antigravity",
   "repository": {
     "type": "git",
@@ -16,6 +16,7 @@
   ],
   "activationEvents": [
     "onCommand:browserAgent.run",
+    "onCommand:browserAgent.openTab",
     "onView:browserAgent.panel"
   ],
   "main": "./dist/extension.js",
@@ -23,7 +24,11 @@
     "commands": [
       {
         "command": "browserAgent.run",
-        "title": "Run Browser Agent"
+        "title": "Browser Agent: Show Sidebar"
+      },
+      {
+        "command": "browserAgent.openTab",
+        "title": "Browser Agent: Open in Editor Tab"
       }
     ],
     "viewsContainers": {

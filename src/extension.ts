@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { applyChanges } from "./fileApplicator";
 import { getBasicContext, enrichContext, buildPhase1Prompt, parsePhase1Response, buildPhase2Prompt, BasicContext } from "./promptEngineer";
-import { BrowserAgentViewProvider } from "./webview/panel";
+import { BrowserAgentViewProvider, getHtml } from "./webview/panel";
 
 enum AgentState {
   Idle,
@@ -14,30 +14,16 @@ export function activate(context: vscode.ExtensionContext) {
   let currentBasicContext: BasicContext | undefined;
   let currentImprovedPrompt: string = "";
 
-  const resetState = () => {
-    currentState = AgentState.Idle;
-    currentBasicContext = undefined;
-    currentImprovedPrompt = "";
-    provider.updateState("Describe Task", "e.g. Add a logout button...", false);
-    provider.postStatus("Ready.");
-    provider.navigateIframe("about:blank", false);
-  };
-
-  const openPerplexityWithPrompt = async (prompt: string) => {
-    // Avoid 414 Request-URI Too Large by using clipboard instead of URL query param
-    await vscode.env.clipboard.writeText(prompt);
-    provider.navigateIframe("https://www.perplexity.ai/", true);
-  };
-
-  const handleSubmit = async (text: string) => {
+  // Helper to handle the state logic
+  const handleLogic = async (text: string, providerOrPanel: any) => {
     if (!text.trim()) return;
 
     try {
       if (currentState === AgentState.Idle) {
-        provider.postStatus("Phase 1: Building project context...");
+        providerOrPanel.postStatus("Phase 1: Building project context...");
         currentBasicContext = await getBasicContext();
         if (!currentBasicContext) {
-          provider.postError("No workspace open.");
+          providerOrPanel.postError("No workspace open.");
           return;
         }
         
@@ -51,50 +37,98 @@ export function activate(context: vscode.ExtensionContext) {
 
         const phase1Prompt = buildPhase1Prompt(text, currentBasicContext, pkgContent);
         
-        provider.postStatus("Loading embedded browser for Phase 1...");
-        await openPerplexityWithPrompt(phase1Prompt);
+        providerOrPanel.postStatus("Opening default browser for Phase 1...");
+        await vscode.env.clipboard.writeText(phase1Prompt);
+        await vscode.env.openExternal(vscode.Uri.parse("https://www.perplexity.ai/"));
         
         currentState = AgentState.WaitingForPhase1;
-        provider.updateState("Phase 1: Paste AI JSON Response", "Copy the JSON response from the frame below and paste it here...", true);
-        provider.postStatus("Prompt copied to clipboard! Paste it into the frame below, hit enter, then paste the AI JSON response here.");
+        providerOrPanel.updateState("Phase 1: Paste AI JSON Response", "Paste the JSON object response here...", true);
+        providerOrPanel.postStatus("Prompt copied! Paste it in the browser, hit enter, then paste the AI JSON response here.");
 
       } else if (currentState === AgentState.WaitingForPhase1) {
         if (!currentBasicContext) {
-          resetState();
+          resetState(providerOrPanel);
           return;
         }
-        provider.postStatus("Phase 1: Parsing requested files...");
+        providerOrPanel.postStatus("Phase 1: Parsing requested files...");
         const parsed = parsePhase1Response(text, currentBasicContext.fileTree);
         
-        provider.postStatus(`Phase 2: Loading ${parsed.files.length} requested files...`);
+        providerOrPanel.postStatus(`Phase 2: Loading ${parsed.files.length} requested files...`);
         const enrichedContext = await enrichContext(currentBasicContext, parsed.files);
         currentImprovedPrompt = parsed.improvedPrompt || "Proceed with updates";
 
         const phase2Prompt = buildPhase2Prompt(currentImprovedPrompt, enrichedContext);
         
-        provider.postStatus("Loading embedded browser for Phase 2...");
-        await openPerplexityWithPrompt(phase2Prompt);
+        providerOrPanel.postStatus("Opening default browser for Phase 2...");
+        await vscode.env.clipboard.writeText(phase2Prompt);
+        await vscode.env.openExternal(vscode.Uri.parse("https://www.perplexity.ai/"));
         
         currentState = AgentState.WaitingForPhase2;
-        provider.updateState("Phase 2: Paste Final Code Response", "Copy the generated code from the frame below and paste it here...", true);
-        provider.postStatus("Phase 2 prompt copied to clipboard! Paste it into the frame below, then copy the final generated code here.");
+        providerOrPanel.updateState("Phase 2: Paste Final Code Response", "Paste the generated code here...", true);
+        providerOrPanel.postStatus("Phase 2 prompt copied! Paste it in the browser, then copy the final generated code here.");
 
       } else if (currentState === AgentState.WaitingForPhase2) {
-        provider.postStatus("Applying file changes...");
+        providerOrPanel.postStatus("Applying file changes...");
         await applyChanges(text);
         vscode.window.showInformationMessage("[BrowserAgent] Changes applied successfully.");
-        resetState();
+        resetState(providerOrPanel);
       }
     } catch (e: any) {
-      provider.postError(`Agent failed: ${e.message}`);
-      resetState();
+      providerOrPanel.postError(`Agent failed: ${e.message}`);
+      resetState(providerOrPanel);
     }
   };
 
-  const provider = new BrowserAgentViewProvider(context.extensionUri, handleSubmit, resetState);
+  const resetState = (providerOrPanel: any) => {
+    currentState = AgentState.Idle;
+    currentBasicContext = undefined;
+    currentImprovedPrompt = "";
+    providerOrPanel.updateState("Describe Task", "e.g. Add a logout button...", false);
+    providerOrPanel.postStatus("Ready.");
+  };
 
-  context.subscriptions.push(vscode.window.registerWebviewViewProvider(BrowserAgentViewProvider.viewType, provider));
-  context.subscriptions.push(vscode.commands.registerCommand("browserAgent.run", () => provider.reveal()));
+  // 1. Sidebar View Provider
+  const sidebarProvider = new BrowserAgentViewProvider(context.extensionUri, 
+    (text) => handleLogic(text, sidebarProvider), 
+    () => resetState(sidebarProvider)
+  );
+  context.subscriptions.push(vscode.window.registerWebviewViewProvider(BrowserAgentViewProvider.viewType, sidebarProvider));
+
+  context.subscriptions.push(vscode.commands.registerCommand("browserAgent.run", () => sidebarProvider.reveal()));
+
+  // 2. Full Editor Tab Command (Simulate Browser Tab)
+  context.subscriptions.push(vscode.commands.registerCommand("browserAgent.openTab", () => {
+    const panel = vscode.window.createWebviewPanel(
+      'browserAgentTab',
+      'Agent Workspace',
+      vscode.ViewColumn.One,
+      { enableScripts: true, localResourceRoots: [context.extensionUri] }
+    );
+
+    const panelInterface = {
+      postStatus: (text: string) => panel.webview.postMessage({ type: "status", text }),
+      postError: (text: string) => panel.webview.postMessage({ type: "error", text }),
+      updateState: (instruction: string, placeholder: string, showCancel: boolean) => 
+        panel.webview.postMessage({ type: "state", instruction, placeholder, showCancel })
+    };
+
+    panel.webview.html = getHtml(panel.webview, context.extensionUri);
+
+    panel.webview.onDidReceiveMessage(async (msg) => {
+      try {
+        if (msg?.type === "submit") {
+          const text = String(msg?.text ?? "").trim();
+          if (text) await handleLogic(text, panelInterface);
+        } else if (msg?.type === "cancel") {
+          resetState(panelInterface);
+        } else if (msg?.type === "ping") {
+          panelInterface.postStatus("Ready.");
+        }
+      } catch (e: any) {
+        panelInterface.postError(e?.message ?? String(e));
+      }
+    });
+  }));
 }
 
 export function deactivate() {}

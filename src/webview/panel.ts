@@ -18,7 +18,7 @@ export class BrowserAgentViewProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this.extensionUri],
     };
 
-    webviewView.webview.html = this.getHtml(webviewView.webview);
+    webviewView.webview.html = getHtml(webviewView.webview, this.extensionUri);
 
     webviewView.webview.onDidReceiveMessage(async (msg) => {
       try {
@@ -31,8 +31,6 @@ export class BrowserAgentViewProvider implements vscode.WebviewViewProvider {
           this.onCancel();
         } else if (msg?.type === "ping") {
           this.postStatus("Ready.");
-        } else if (msg?.type === "openExternal") {
-          await vscode.env.openExternal(vscode.Uri.parse(msg.url));
         }
       } catch (e: any) {
         this.postError(e?.message ?? String(e));
@@ -55,145 +53,102 @@ export class BrowserAgentViewProvider implements vscode.WebviewViewProvider {
   public updateState(instruction: string, placeholder: string, showCancel: boolean): void {
     this._view?.webview.postMessage({ type: "state", instruction, placeholder, showCancel });
   }
+}
 
-  public navigateIframe(url: string, show: boolean): void {
-    this._view?.webview.postMessage({ type: "navigate", url, show });
-  }
+export function getHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+  const nonce = getNonce();
+  const csp = `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';`;
 
-  private getHtml(webview: vscode.Webview): string {
-    const nonce = getNonce();
-    const csp = `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; frame-src *;`;
-
-    return `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="${csp}">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Browser Agent</title>
-  <style>
-    body { font-family: var(--vscode-font-family); padding: 10px; color: var(--vscode-foreground); display: flex; flex-direction: column; gap: 8px; height: 100vh; margin: 0; box-sizing: border-box; }
-    textarea { width: 100%; min-height: 80px; resize: vertical; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); padding: 6px; box-sizing: border-box; }
-    button { width: 100%; padding: 8px; cursor: pointer; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; font-weight: 500; }
-    button:hover { background: var(--vscode-button-hoverBackground); }
-    button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); font-size: 0.9em; padding: 6px; }
-    button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
-    .box { padding: 10px; border: 1px solid var(--vscode-widget-border); border-radius: 4px; background: var(--vscode-editor-background); }
-    .muted { opacity: 0.8; font-size: 0.9em; font-weight: bold; margin-bottom: 4px; }
-    pre { white-space: pre-wrap; word-break: break-word; font-size: 0.85em; margin: 0; font-family: var(--vscode-editor-font-family); }
-    iframe { flex: 1; width: 100%; border: 1px solid var(--vscode-widget-border); border-radius: 4px; display: none; background: #fff; min-height: 300px; }
-    #consoleLogs { max-height: 100px; overflow-y: auto; border-top: 1px dashed var(--vscode-widget-border); margin-top: 8px; padding-top: 8px; font-size: 0.8em; color: var(--vscode-errorForeground); display: none; }
-  </style>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="${csp}">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Browser Agent</title>
+<style>
+  body { font-family: var(--vscode-font-family); padding: 15px; color: var(--vscode-foreground); display: flex; flex-direction: column; gap: 12px; height: 100vh; margin: 0; box-sizing: border-box; max-width: 800px; margin: 0 auto; }
+  textarea { width: 100%; min-height: 120px; resize: vertical; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); padding: 10px; box-sizing: border-box; border-radius: 4px; font-size: 14px; }
+  button { width: 100%; padding: 10px; cursor: pointer; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; font-weight: 500; border-radius: 4px; }
+  button:hover { background: var(--vscode-button-hoverBackground); }
+  button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+  button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
+  .box { padding: 12px; border: 1px solid var(--vscode-widget-border); border-radius: 4px; background: var(--vscode-editor-background); margin-top: 10px; }
+  .muted { opacity: 0.8; font-size: 0.9em; font-weight: bold; margin-bottom: 6px; }
+  pre { white-space: pre-wrap; word-break: break-word; font-size: 0.9em; margin: 0; font-family: var(--vscode-editor-font-family); }
+  
+  .notice { font-size: 0.85em; padding: 10px; background: var(--vscode-editorInfo-background, rgba(0, 122, 204, 0.1)); border-left: 3px solid var(--vscode-editorInfo-foreground, #007acc); margin-bottom: 10px; }
+</style>
 </head>
 <body>
-  <div class="muted" id="instruction">Describe Task</div>
-  <textarea id="prompt" placeholder="e.g. Add a logout button..."></textarea>
+
+<div class="notice">
+  <strong>Why external browser?</strong> VS Code uses an isolated Chromium environment that cannot access your system cookies. By using your default browser, you stay automatically authenticated with Perplexity Pro without being blocked by Cloudflare.
+</div>
+
+<div class="muted" id="instruction">Describe Task</div>
+<textarea id="prompt" placeholder="e.g. Add a logout button... (Press Enter to submit, Shift+Enter for new line)"></textarea>
+
+<button id="submitBtn">Submit Prompt & Open Browser</button>
+<button id="cancelBtn" class="secondary" style="display: none;">Cancel / Start Over</button>
+
+<div class="box">
+  <div class="muted">Status</div>
+  <pre id="status">Ready.</pre>
+</div>
+
+<script nonce="${nonce}">
+  const vscode = acquireVsCodeApi();
+  const instructionEl = document.getElementById('instruction');
+  const promptEl = document.getElementById('prompt');
+  const statusEl = document.getElementById('status');
+  const submitBtn = document.getElementById('submitBtn');
+  const cancelBtn = document.getElementById('cancelBtn');
+
+  function submit() {
+    const text = (promptEl.value || '').trim();
+    if (text) {
+      vscode.postMessage({ type: 'submit', text });
+    }
+  }
+
+  submitBtn.addEventListener('click', submit);
   
-  <button id="submitBtn">Submit</button>
-  <button id="cancelBtn" class="secondary" style="display: none;">Cancel / Start Over</button>
+  cancelBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'cancel' });
+  });
 
-  <div class="box">
-    <div class="muted" style="font-size: 0.8em; margin-bottom: 6px;">Status</div>
-    <pre id="status">Ready.</pre>
-    <pre id="consoleLogs"></pre>
-  </div>
-
-  <button id="openExternalBtn" class="secondary" style="display: none;">Blank screen? Open in External Browser instead</button>
-  <iframe id="perplexityFrame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" src="about:blank"></iframe>
-
-  <script nonce="${nonce}">
-    const vscode = acquireVsCodeApi();
-    const instructionEl = document.getElementById('instruction');
-    const promptEl = document.getElementById('prompt');
-    const statusEl = document.getElementById('status');
-    const submitBtn = document.getElementById('submitBtn');
-    const cancelBtn = document.getElementById('cancelBtn');
-    const iframeEl = document.getElementById('perplexityFrame');
-    const logsEl = document.getElementById('consoleLogs');
-    const externalBtn = document.getElementById('openExternalBtn');
-    let currentIframeUrl = '';
-
-    // Capture console errors
-    const originalError = console.error;
-    console.error = function(...args) {
-      originalError.apply(console, args);
-      logsEl.style.display = 'block';
-      logsEl.textContent += '[Error] ' + args.join(' ') + '\\n';
-    };
-
-    function submit() {
-      const text = (promptEl.value || '').trim();
-      if (text) {
-        vscode.postMessage({ type: 'submit', text });
+  promptEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      if (e.shiftKey) {
+        return;
+      } else {
+        e.preventDefault();
+        submit();
       }
     }
+  });
 
-    submitBtn.addEventListener('click', submit);
-    
-    cancelBtn.addEventListener('click', () => {
-      vscode.postMessage({ type: 'cancel' });
-    });
+  window.addEventListener('message', (event) => {
+    const msg = event.data;
+    if (!msg || !msg.type) return;
+    if (msg.type === 'status') {
+      statusEl.textContent = msg.text ?? '';
+    } else if (msg.type === 'error') {
+      statusEl.textContent = 'Error: ' + (msg.text ?? '');
+    } else if (msg.type === 'state') {
+      instructionEl.textContent = msg.instruction;
+      promptEl.value = '';
+      promptEl.placeholder = msg.placeholder;
+      cancelBtn.style.display = msg.showCancel ? 'block' : 'none';
+      submitBtn.textContent = msg.showCancel ? 'Submit Paste' : 'Submit Prompt & Open Browser';
+    }
+  });
 
-    externalBtn.addEventListener('click', () => {
-      if (currentIframeUrl && currentIframeUrl !== 'about:blank') {
-        vscode.postMessage({ type: 'openExternal', url: currentIframeUrl });
-      }
-    });
-
-    promptEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        if (e.shiftKey) {
-          return;
-        } else {
-          e.preventDefault();
-          submit();
-        }
-      }
-    });
-
-    iframeEl.addEventListener('load', () => {
-      try {
-        // If we can access location, it means it's not cross-origin blocked yet, or it's about:blank
-        const href = iframeEl.contentWindow.location.href;
-        if (href !== 'about:blank') {
-          console.log("Iframe loaded successfully.");
-        }
-      } catch (e) {
-        // Cross-origin restriction triggered - this is expected for Perplexity, 
-        // but if the screen is fully blank, it means X-Frame-Options blocked it.
-        logsEl.style.display = 'block';
-        logsEl.textContent += "Notice: Perplexity restricts iframe embedding (X-Frame-Options: SAMEORIGIN). If the frame is blank, click 'Open in External Browser'.\\n";
-      }
-    });
-
-    window.addEventListener('message', (event) => {
-      const msg = event.data;
-      if (!msg || !msg.type) return;
-      if (msg.type === 'status') {
-        statusEl.textContent = msg.text ?? '';
-      } else if (msg.type === 'error') {
-        logsEl.style.display = 'block';
-        logsEl.textContent += '[Error] ' + (msg.text ?? '') + '\\n';
-      } else if (msg.type === 'state') {
-        instructionEl.textContent = msg.instruction;
-        promptEl.value = '';
-        promptEl.placeholder = msg.placeholder;
-        cancelBtn.style.display = msg.showCancel ? 'block' : 'none';
-        logsEl.style.display = 'none';
-        logsEl.textContent = '';
-      } else if (msg.type === 'navigate') {
-        currentIframeUrl = msg.url;
-        iframeEl.src = msg.url;
-        iframeEl.style.display = msg.show ? 'block' : 'none';
-        externalBtn.style.display = msg.show ? 'block' : 'none';
-      }
-    });
-
-    vscode.postMessage({ type: 'ping' });
-  </script>
+  vscode.postMessage({ type: 'ping' });
+</script>
 </body>
 </html>`;
-  }
 }
 
 function getNonce(): string {
